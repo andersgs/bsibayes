@@ -1,0 +1,32 @@
+Package: bsibayes
+Type: Package
+Title: Bayesian Models for Estimating Incidence of Blood Stream Infections in Messy Epi Data
+Version: 0.1.0
+Authors@R: c(person("Anders", "Gonçalves da Silva", email="andersgs@gmail.com", role=c("cre", "aut")),
+    person("Stefano", "Giulieri", email="stefano.giulieri@gmail.com", role=c("aut")))
+Maintainer: Anders Gonçalves da Silva <andersgs@gmail.com>
+Description: Bayesian models build in STAN to analyse messy epidemiological data.
+License: GPLv3
+Encoding: UTF-8
+LazyData: true
+Suggests: knitr,
+    rmarkdown,
+    testthat
+VignetteBuilder: knitr
+Imports: dplyr,
+    rstan,
+    rstantools,
+    tidyr,
+    tibble,
+    bayesplot
+Depends: Rcpp,
+    methods
+LinkingTo: Rcpp,
+    StanHeaders,
+    rstan,
+    BH,
+    RcppEigen
+SystemRequirements: GNU make
+NeedsCompilation: yes
+ByteCompile: true
+RoxygenNote: 6.0.1

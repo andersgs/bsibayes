@@ -1,0 +1,173 @@
+---
+title: "Simulate messy epi data"
+author: "Anders Gonçalves da Silva"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Vignette Title}
+  %\VignetteEncoding{UTF-8}
+  %\VignetteEngine{knitr::rmarkdown}
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+library(bsibayes)
+library(dplyr)
+library(ggplot2)
+library(knitr)
+library(bayesplot)
+```
+
+# Scenario 1
+
+```{r, sim_data_sc1}
+## DISEASE PARAMETERS
+
+disease_type = c(
+  "NOTIFIABLE",
+  "NON-NOTIFIABLE-CONST",
+  "NON-NOTIFIABLE-DEC",
+  "NON-NOTIFIABLE-INC"
+)
+
+pi = c(
+  "notifiable" = 0.05,
+  "nonnot_1" = 0.02,
+  "nonnot_2" = 0.07,
+  "nonnot_3" = 0.05
+)
+
+beta = c(
+  "notifiable" = 0,
+  "nonnot_1" = 0,
+  "nonnot_2" = -0.01,
+  "nonnot_3" = +0.01
+)
+
+DISEASE_PARAM = tibble::tibble(
+  disease_type = disease_type,
+  pi = pi,
+  beta = beta
+)
+
+DISEASE_PARAM
+
+## INSTITUTION PARAMETERS
+lambda = c(
+  'small' = 100,
+  'medium' = 250,
+  'large' = 625
+)
+
+n_inst = 10
+n_small = 5
+n_medium = 3
+n_large = 2
+
+n_small_notreporting = 1
+n_medium_notreporting = 1
+n_large_notreporting = 1
+
+inst_size = c(rep('small', n_small),
+                rep('medium', n_medium),
+                rep('large', n_large))
+
+gen_report_status <- function(total, n_notreporting) {
+  return(c(rep(TRUE, total - n_notreporting), 
+                       rep(FALSE, n_notreporting)))
+}
+
+inst_report_status = c(gen_report_status(n_small, n_small_notreporting),
+                       gen_report_status(n_medium, n_medium_notreporting),
+                       gen_report_status(n_large, n_large_notreporting))
+                       
+INST_PARAM = tibble::tibble(
+  id = 1:n_inst,
+  size = inst_size,
+  lambda = lambda[inst_size],
+  reporting = inst_report_status
+)
+
+INST_PARAM
+
+total_sims = nrow(INST_PARAM) * nrow(DISEASE_PARAM)
+total_sims
+# GENERATE SOME SEEDS
+set.seed(42)
+seeds = runif(n = total_sims, 1,.Machine$integer.max)
+seeds
+
+n_years = 10
+base_year = 2001
+years = seq(base_year, (base_year + n_years - 1))
+
+sims_tab = bsibayes::sim_counts(disease_param = DISEASE_PARAM, 
+                      inst_param = INST_PARAM, 
+                      years = years, seed = 42)
+```
+
+```{r, plot_sims, fig.cap = "Simulated data counts across 10 institutions"}
+ggplot(sims_tab$long_sim, aes(x = year, y = count, 
+                     colour = disease_type)) +
+  geom_line() +
+  facet_wrap(~labcode, nrow = 5) +
+  xlab("Years") +
+  ylab("Observed Count")
+```
+
+## Model 1: Recovering the rate of *notifiable* disease
+
+The simplest model we can use here is assume that the observed counts are 
+distributed as Poisson distribution, with parameter $\lambda$ and offset 
+equal to $log(BSI)$. The parameter $\lambda$ can have a flat Uniform prior
+with domain across $Real^+$ numbers. We can represent this model in the following
+way:
+
+$$
+\begin{aligned}
+  \lambda &\sim Uniform(-\infty,\infty) \\
+  Count &\sim Poisson(e^{(log(BSI) + \lambda)})
+\end{aligned}
+$$
+
+Below, we demonstrate how this model is implemented with `STAN` and `R` using only
+the data from the notifiable disease. As we can see from
+figure \ref{fig:m1_posterior}, the simulated value of $\pi$ as 0.05 is recovered by 
+the model. However, to demonstrate this further,
+we performed a posterior check by simulating counts from the posterior values, 
+and comparing them to the observed counts from the simulated data. As can be 
+seen in figure \ref{fig:m1_posterior_check}, our posterior check simulation 
+confirms that the model is correctly capturing the information in the data, and
+returning good inferences about $\pi$
+
+### Model 1 `STAN` and `R` code
+
+#### Model 1 fitting
+
+```{r, m1_fitting, eval = T}
+m1_fit <- run_models_ni(sims_tab$long_sim, model = 'model1')
+```
+
+```{r, fig.cap="Posterior distribution of lambda using model 1. \\label{fig:m1_posterior}"}
+posterior <- exp(as.matrix(m1_fit, pars='lambda'))
+bayesplot::mcmc_combo(posterior)
+```
+
+```{r, }
+color_scheme_set("purple")
+pp <- bsibayes::posterior_predict(m1_fit, draws=500, seed=42)
+ppmat <- pp %>% select(labcode, year,rep, count_hat) %>% tidyr::spread(rep, count_hat) %>% select(-labcode, -year) %>% as.matrix()
+bayesplot::ppc_intervals_grouped(y = attr(m1_fit, 'data')$count, yrep = t(ppmat), x = attr(m1_fit, 'data')$year, group = attr(m1_fit, 'data')$labcode, prob = 0.5) +
+  labs(
+    x = "Year",
+    y = "Count BSI",
+    title = "50% posterior predictive intervals \nvs count of BSI per lab by year"
+  ) +
+  panel_bg(fill = "gray95", color = NA) +
+  grid_lines(color = "white")
+```
